@@ -535,7 +535,19 @@ struct json_object* json_tokener_parse_ex(struct json_tokener *tok,
 	const char *case_start = str;
 	/* the previous byte. It's used for identifying rarely-used Chinese characters in GBK charset, those characters's the second byte is just the backslash '\'(0x5C)  */
 	unsigned char old_c = '\1';
+	unsigned int gbk_flag = 0;  /* 标识一个完整的GBK汉字, 0-否;1-是 */
 	while(1) {
+
+	  /* 判断是否为GBK汉字 */
+	  if (old_c >= 0x81 && old_c <= 0xfe
+	  && (unsigned char)c >= 0x40 && (unsigned char)c <= 0xfe && (unsigned char)c != 0x7f
+	  ) {
+	    gbk_flag = 1;
+	  }
+	  else {
+	    gbk_flag = 0;
+	  }
+
 	  if(c == tok->quote_char) {
 	    printbuf_memappend_fast(tok->pb, case_start, str-case_start);
 	    current = json_object_new_string_len(tok->pb->buf, tok->pb->bpos);
@@ -544,14 +556,20 @@ struct json_object* json_tokener_parse_ex(struct json_tokener *tok,
 	    saved_state = json_tokener_state_finish;
 	    state = json_tokener_state_eatws;
 	    break;
-	  } else if(c == '\\' && old_c < 0x80) { /* If the previous byte is not ASCII character, maybe this is a double-byte GBK character, we can skip it. */
+	  } else if(c == '\\' && gbk_flag == 0) { /* If the previous byte is not ASCII character, maybe this is a double-byte GBK character, we can skip it. */
 	    printbuf_memappend_fast(tok->pb, case_start, str-case_start);
 	    saved_state = json_tokener_state_string;
 	    state = json_tokener_state_string_escape;
 	    break;
 	  }
 
-	  old_c = c;
+	  if (gbk_flag == 1) {
+        old_c = '\1'; /* 当前两字节已形成一个合法GBK汉字，重置第一字节，避免造成下一字节的误判 */
+      } else {
+        old_c = (unsigned char)c;
+      }
+      /*printf("c=[%c][%#x], gbk_flag=%d\n", c, (unsigned char)c, gbk_flag);*/ 
+
 	  if (!ADVANCE_CHAR(str, tok) || !PEEK_CHAR(c, tok)) {
 	    printbuf_memappend_fast(tok->pb, case_start, str-case_start);
 	    goto out;

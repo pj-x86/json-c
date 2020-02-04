@@ -109,9 +109,21 @@ static int json_escape_str(struct printbuf *pb, const char *str, int len, int fl
 	unsigned char c;
 	/* the previous byte. It's used for identifying rarely-used Chinese characters in GBK charset, those characters's the second byte is just the backslash '\'(0x5C)  */
 	unsigned char old_c = '\1';
+	unsigned int gbk_flag = 0;  /* 标识一个完整的GBK汉字, 0-否;1-是 */
 	while (len--)
 	{
 		c = str[pos];
+
+		/* 判断是否为GBK汉字 */
+		if (old_c >= 0x81 && old_c <= 0xfe
+		&& c >= 0x40 && c <= 0xfe && c != 0x7f
+		) {
+			gbk_flag = 1;
+		}
+		else {
+			gbk_flag = 0;
+		}
+
 		switch(c)
 		{
 		case '\b':
@@ -137,8 +149,8 @@ static int json_escape_str(struct printbuf *pb, const char *str, int len, int fl
 			else if(c == '\t') printbuf_memappend(pb, "\\t", 2);
 			else if(c == '\f') printbuf_memappend(pb, "\\f", 2);
 			else if(c == '"') printbuf_memappend(pb, "\\\"", 2);
-			else if(c == '\\' && old_c < 0x80) printbuf_memappend(pb, "\\\\", 2); /* If the previous byte is ASCII character, this byte is escape character. */
-			else if(c == '\\' && old_c >= 0x80) printbuf_memappend(pb, "\\", 1); /* Else these two bytes are maybe a double-byte GBK character. */
+			else if(c == '\\' && gbk_flag == 0) printbuf_memappend(pb, "\\\\", 2); /* If the previous byte is ASCII character, this byte is escape character. */
+			else if(c == '\\' && gbk_flag == 1) printbuf_memappend(pb, "\\", 1); /* Else these two bytes are maybe a double-byte GBK character. */
 			else if(c == '/') printbuf_memappend(pb, "\\/", 2);
 
 			start_offset = ++pos;
@@ -161,7 +173,12 @@ static int json_escape_str(struct printbuf *pb, const char *str, int len, int fl
 				pos++;
 		}
 
-		old_c = c;
+		if (gbk_flag == 1) {
+			old_c = '\1'; /* 当前两字节已形成一个合法GBK汉字，重置第一字节，避免造成下一字节的误判 */
+		} else {
+			old_c = c;
+		}
+		
 	}
 	if (pos - start_offset > 0)
 		printbuf_memappend(pb, str + start_offset, pos - start_offset);
